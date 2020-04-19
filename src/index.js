@@ -1,3 +1,8 @@
+const prefix = '#token='
+if (window.location.hash.startsWith(prefix)) {
+  const token = window.location.hash.slice(prefix.length)
+  window.localStorage.setItem('token', token)
+}
 import React, { Component } from 'react'
 import { render } from 'react-dom'
 import { Provider, connect } from 'react-redux'
@@ -40,15 +45,17 @@ actions.attemptLogin = (credentials, history) => {
 actions.attemptSessionLogin = () => {
   return async (dispatch) => {
     const token = window.localStorage.getItem('token')
-    const auth = (
-      await axios.get('/api/sessions', {
-        headers: {
-          authorization: token,
-        },
-      })
-    ).data
-    dispatch({ type: 'SET_AUTH', auth })
-    dispatch(actions.fetchLogins())
+    if (token) {
+      const auth = (
+        await axios.get('/api/sessions', {
+          headers: {
+            authorization: token,
+          },
+        })
+      ).data
+      dispatch({ type: 'SET_AUTH', auth })
+      dispatch(actions.fetchLogins())
+    }
   }
 }
 
@@ -73,70 +80,12 @@ actions.logout = () => {
   }
 }
 
-/* Login */
-class _Login extends Component {
-  constructor() {
-    super()
-    this.state = {
-      email: '',
-      password: '',
-      error: '',
-    }
-    this.onChange = this.onChange.bind(this)
-    this.attemptLogin = this.attemptLogin.bind(this)
-  }
-  attemptLogin(ev) {
-    ev.preventDefault()
-    const credentials = { ...this.state }
-    delete credentials.error
-    this.props
-      .attemptLogin(credentials)
-      .catch((ex) => this.setState({ error: 'bad credentials' }))
-  }
-  onChange(ev) {
-    this.setState({ [ev.target.name]: ev.target.value })
-  }
-  render() {
-    const { error, email, password } = this.state
-    const { onChange, attemptLogin } = this
-    return (
-      <form>
-        {error && <div className="error">{error}</div>}
-        <div>
-          <label>Email</label>
-          <input name="email" value={email} onChange={onChange} />
-        </div>
-        <div>
-          <label>Password</label>
-          <input
-            type="password"
-            name="password"
-            value={password}
-            onChange={onChange}
-          />
-        </div>
-        <button onClick={attemptLogin}>Login</button>
-      </form>
-    )
-  }
-}
-
-const Login = connect(
-  () => {
-    return {}
-  },
-  (dispatch, { history }) => {
-    return {
-      attemptLogin: (username) =>
-        dispatch(actions.attemptLogin(username, history)),
-    }
-  }
-)(_Login)
+const Login = () => <a href="/github">Try Github</a>
 
 /* Home */
 const _Home = ({ auth, logins, logout }) => (
   <div>
-    Home - Welcome {auth.email}
+    Home - Welcome {auth.github}
     <button onClick={logout}>Logout</button>
     <ul>
       {logins.map((login) => (
@@ -162,7 +111,11 @@ const Home = connect(
 /* App */
 class _App extends Component {
   componentDidMount() {
-    this.props.attemptSessionLogin().catch((ex) => console.log(ex))
+    this.props.attemptSessionLogin().catch((ex) => {
+      if (ex.response.status === 401) {
+        window.localStorage.removeItem('token')
+      }
+    })
   }
   render() {
     const { loggedIn } = this.props

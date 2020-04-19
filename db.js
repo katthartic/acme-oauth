@@ -1,9 +1,11 @@
 const Sequelize = require('sequelize')
 const { UUID, UUIDV4, STRING } = Sequelize
+const jwt = require('jwt-simple')
+const axios = require('axios')
+
 const conn = new Sequelize(
   process.env.DATABASE_URL || 'postgres://localhost/my_db'
 )
-const jwt = require('jwt-simple')
 
 const User = conn.define('user', {
   id: {
@@ -11,24 +13,9 @@ const User = conn.define('user', {
     defaultValue: UUIDV4,
     primaryKey: true,
   },
-  email: {
-    type: STRING,
-    allowNull: false,
-    unique: true,
-    validate: {
-      isEmail: true,
-    },
+  github: {
+    type: Sequelize.STRING,
   },
-  password: {
-    type: STRING,
-    allowNull: false,
-  },
-  //added login and accessToken
-  login: {
-    type: STRING,
-    unique: true,
-  },
-  accessToken: STRING,
 })
 
 const Login = conn.define('login', {
@@ -41,50 +28,55 @@ const Login = conn.define('login', {
 
 Login.belongsTo(User)
 
+User.fromGithub = async function (code) {
+  const { GITHUB_ID, GITHUB_SECRET } = process.env
+
+  const payload = {
+    client_id: GITHUB_ID,
+    client_secret: GITHUB_SECRET,
+    code,
+  }
+  const response = (
+    await axios.post('https://github.com/login/oauth/access_token', payload, {
+      headers: { accept: 'application/json' },
+    })
+  ).data
+
+  const gitUser = (
+    await axios.get('https://api.github.com/user', {
+      headers: {
+        authorization: `token ${response.access_token}`,
+      },
+    })
+  ).data
+  let user = await User.findOne({ where: { github: gitUser.login } })
+  if (!user) {
+    user = await User.create({ github: gitUser.login })
+  }
+  await Login.create({ userId: user.id })
+
+  return jwt.encode({ id: user.id }, process.env.SECRET)
+}
+
 User.findByToken = async function (token) {
   try {
     const id = jwt.decode(token, process.env.SECRET).id
     const user = await this.findByPk(id)
     if (!user) {
-      throw { status: 401 }
+      const err = new Error('not authorized')
+      err.status = 401
+      throw err
     }
     return user
   } catch (ex) {
-    throw { status: 401 }
+    const err = new Error('not authorized')
+    err.status = 401
+    throw err
   }
-}
-
-//added method
-User.generateToken = function ({ login }) {
-  console.log('in generateToken', login)
-  return User.findOne({ where: { login } })
-    .then((user) => {
-      if (user) {
-        return user
-      }
-      return User.create({ login })
-    })
-    .then((user) => {
-      return jwt.encode({ id: user.id }, process.env.JWT)
-    })
 }
 
 const syncAndSeed = async () => {
   await conn.sync({ force: true })
-  const users = [
-    { name: 'moe' },
-    { name: 'larry' },
-    { name: 'lucy' },
-    { name: 'ethyl' },
-  ]
-  const [moe, larry, lucy, ethyl] = await Promise.all(
-    users.map((user) =>
-      User.create({
-        email: `${user.name}@gmail.com`,
-        password: user.name.toUpperCase(),
-      })
-    )
-  )
 }
 
 module.exports = {
