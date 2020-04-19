@@ -1,10 +1,12 @@
 const express = require('express')
+const axios = require('axios')
 const app = express()
 app.use(express.json())
 const path = require('path')
 const db = require('./db')
 const { User, Login } = db.models
 const jwt = require('jwt-simple')
+const qs = require('qs')
 
 const port = process.env.PORT || 3000
 db.syncAndSeed().then(() =>
@@ -44,6 +46,50 @@ app.post('/api/sessions', (req, res, next) => {
     .catch((err) => next(err))
 })
 
+const CLIENT_ID = '571d19270bf3a1c7c390'
+const CLIENT_SECRET = 'dfcd31d71410c89f3bd1c63f81d6740b7f2758c6'
+
+app.get('/github', (req, res, next) => {
+  const url = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}`
+  res.redirect(url)
+})
+
+app.get('/github/callback', (req, res, next) => {
+  const url = 'https://github.com/login/oauth/access_token'
+
+  const payload = {
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    code: req.query.code,
+  }
+  console.log(payload)
+  axios
+    .post(url, payload)
+    .then((response) => {
+      const { access_token } = qs.parse(response.data)
+      const url = 'https://api.github.com/user'
+      return axios.get(url, {
+        headers: {
+          Authorization: `token ${access_token}`,
+        },
+      })
+    })
+    .then((response) => {
+      return User.generateToken(response.data)
+    })
+    .then((token) => {
+      res.send(`
+        <html>
+            <script>
+                window.localStorage.setItem('token', ${token})
+                window.document.location = '/';
+            </script>
+        </html>
+        `)
+    })
+    .catch(next)
+})
+
 app.get('/api/sessions', (req, res, next) => {
   if (req.user) {
     return res.send(req.user)
@@ -64,4 +110,9 @@ app.delete('/api/sessions', (req, res, next) => {
 
 app.get('/', (req, res, next) => {
   res.sendFile(path.join(__dirname, 'index.html'))
+})
+
+app.use((err, req, res, next) => {
+  console.log(err)
+  res.status(500).send(err.message)
 })

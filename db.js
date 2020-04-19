@@ -23,6 +23,12 @@ const User = conn.define('user', {
     type: STRING,
     allowNull: false,
   },
+  //added login and accessToken
+  login: {
+    type: STRING,
+    unique: true,
+  },
+  accessToken: STRING,
 })
 
 const Login = conn.define('login', {
@@ -46,6 +52,21 @@ User.findByToken = async function (token) {
   } catch (ex) {
     throw { status: 401 }
   }
+}
+
+//added method
+User.generateToken = function ({ login }) {
+  console.log('in generateToken', login)
+  return User.findOne({ where: { login } })
+    .then((user) => {
+      if (user) {
+        return user
+      }
+      return User.create({ login })
+    })
+    .then((user) => {
+      return jwt.encode({ id: user.id }, process.env.JWT)
+    })
 }
 
 const syncAndSeed = async () => {
